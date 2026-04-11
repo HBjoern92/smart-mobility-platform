@@ -1,0 +1,86 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ride-service
+  namespace: default
+  annotations:
+    # Dokumentiert die Rolling-Update-Strategie für die Präsentation
+    deployment.kubernetes.io/revision: "1"
+spec:
+  replicas: 2
+
+  # ═══════════════════════════════════════════════════════
+  # ZERO-DOWNTIME ROLLING UPDATE KONFIGURATION
+  # Kubernetes ersetzt Pods schrittweise:
+  #   maxSurge:       1 extra Pod darf während Update laufen
+  #   maxUnavailable: 0 Pods dürfen während Update ausfallen
+  # → Es laufen immer mindestens 2 Pods gleichzeitig
+  # ═══════════════════════════════════════════════════════
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge:       1
+      maxUnavailable: 0
+
+  selector:
+    matchLabels:
+      app: ride-service
+  template:
+    metadata:
+      labels:
+        app: ride-service
+    spec:
+      containers:
+        - name: ride-service
+          image: ride-service:latest
+          # imagePullPolicy: Always  ← aktivieren wenn Image in Registry
+          imagePullPolicy: Never     # lokal gebaut (minikube/kind)
+          ports:
+            - containerPort: 8001
+          envFrom:
+            - configMapRef:
+                name: smart-mobility-config
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: smart-mobility-secrets
+                  key: DATABASE_URL
+
+          # Readiness: kein Traffic bis Service wirklich bereit
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            initialDelaySeconds: 10
+            periodSeconds:       5
+            failureThreshold:    3
+
+          # Liveness: Pod neu starten wenn er hängt
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            initialDelaySeconds: 20
+            periodSeconds:       10
+            failureThreshold:    3
+
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu:    "100m"
+            limits:
+              memory: "256Mi"
+              cpu:    "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ride-service
+  namespace: default
+spec:
+  selector:
+    app: ride-service
+  ports:
+    - port:       8001
+      targetPort: 8001

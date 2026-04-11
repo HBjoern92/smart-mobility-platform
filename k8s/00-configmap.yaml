@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: smart-mobility-config
+  namespace: default
+data:
+  # Kafka (already installed in cluster)
+  KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+
+  # Service URLs (internal DNS)
+  RIDE_SERVICE_URL:    "http://ride-service:8001"
+  DRIVER_SERVICE_URL:  "http://driver-service:8002"
+  PAYMENT_SERVICE_URL: "http://payment-service:8003"
+
+  # Ride service
+  PRICE_PER_KM: "2.50"
+  SPEED_KMH:    "40.0"
+
+  # Payment service
+  SIMULATE_FAILURE_RATE: "0.0"
+
+  # Redis
+  REDIS_URL: "redis://redis:6379/0"
+
+  # MongoDB
+  MONGO_URL:        "mongodb://mongodb:27017"
+  MONGO_DB:         "analytics"
+  MONGO_COLLECTION: "kpi_results"
+
+  # Spark
+  SPARK_MASTER:   "local[*]"
+  LOOKBACK_HOURS: "24"

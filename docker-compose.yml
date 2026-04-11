@@ -1,0 +1,202 @@
+# ============================================================
+# Smart Mobility Platform – Local Development Stack
+# Usage:
+#   docker-compose up --build        (start everything)
+#   docker-compose up ride-service   (start single service)
+#   docker-compose down -v           (stop + remove volumes)
+# ============================================================
+
+services:
+
+  # ──────────────────────────────────────────────────────────
+  # INFRASTRUCTURE
+  # ──────────────────────────────────────────────────────────
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: sm-postgres
+    environment:
+      POSTGRES_USER:     ride_user
+      POSTGRES_PASSWORD: ride_pass
+      POSTGRES_DB:       ride_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ride_user -d ride_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: sm-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mongodb:
+    image: mongo:7
+    container_name: sm-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    container_name: sm-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME:   2000
+    healthcheck:
+      test: ["CMD-SHELL", "echo ruok | nc localhost 2181"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: sm-kafka
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID:                        1
+      KAFKA_ZOOKEEPER_CONNECT:                zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS:             PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP:   PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME:       PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE:        "true"
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: sm-kafka-ui
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME:            local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+
+  # ──────────────────────────────────────────────────────────
+  # MICROSERVICES
+  # ──────────────────────────────────────────────────────────
+
+  ride-service:
+    build: ./ride-service
+    container_name: sm-ride-service
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8001:8001"
+    environment:
+      DATABASE_URL:              postgresql://ride_user:ride_pass@postgres:5432/ride_db
+      KAFKA_BOOTSTRAP_SERVERS:   kafka:29092
+      PRICE_PER_KM:              "2.50"
+      SPEED_KMH:                 "40.0"
+    restart: on-failure
+
+  driver-service:
+    build: ./driver-service
+    container_name: sm-driver-service
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8002:8002"
+    environment:
+      REDIS_URL:                redis://redis:6379/0
+      KAFKA_BOOTSTRAP_SERVERS:  kafka:29092
+    restart: on-failure
+
+  payment-service:
+    build: ./payment-service
+    container_name: sm-payment-service
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8003:8003"
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS:   kafka:29092
+      SIMULATE_FAILURE_RATE:     "0.0"
+    restart: on-failure
+
+  api-gateway:
+    build: ./api-gateway
+    container_name: sm-api-gateway
+    depends_on:
+      - ride-service
+      - driver-service
+      - payment-service
+    ports:
+      - "8000:8000"
+    environment:
+      RIDE_SERVICE_URL:    http://ride-service:8001
+      DRIVER_SERVICE_URL:  http://driver-service:8002
+      PAYMENT_SERVICE_URL: http://payment-service:8003
+    restart: on-failure
+
+  analytics-service:
+    build: ./analytics-service
+    container_name: sm-analytics-service
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8004:8004"
+    environment:
+      MONGO_URL:                 mongodb://mongodb:27017
+      MONGO_DB:                  analytics
+      KAFKA_BOOTSTRAP_SERVERS:   kafka:29092
+      SPARK_MASTER:              "local[*]"
+      LOOKBACK_HOURS:            "24"
+    restart: on-failure
+
+  frontend:
+    build: ./frontend
+    container_name: sm-frontend
+    depends_on:
+      - api-gateway
+    ports:
+      - "3000:80"
+    restart: on-failure
+
+# ──────────────────────────────────────────────────────────
+# VOLUMES
+# ──────────────────────────────────────────────────────────
+
+volumes:
+  postgres-data:
+  redis-data:
+  mongo-data:
