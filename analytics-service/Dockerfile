@@ -12,7 +12,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app/ ./app/
 
+
 RUN adduser --disabled-password --gecos "" appuser
+RUN chown -R appuser:appuser /app
 USER appuser
 
 ENV JAVA_HOME=/usr/lib/jvm/default-java

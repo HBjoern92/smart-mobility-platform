@@ -284,13 +284,17 @@
         <label>Benutzername</label>
         <input id="username" type="text" placeholder="z.B. alice" value="alice" />
 
-        <label>Startadresse</label>
-        <input id="start_address" type="text" placeholder="z.B. Marienplatz, München" value="Marienplatz, München" />
-        <div id="start-coords" style="font-size:11px;color:var(--muted);margin-top:-8px;margin-bottom:10px;min-height:16px"></div>
+        <label>Start (Lat / Lon)</label>
+        <div class="row">
+          <input id="start_lat" type="number" step="any" placeholder="Lat" value="48.1351" />
+          <input id="start_lon" type="number" step="any" placeholder="Lon" value="11.5820" />
+        </div>
 
-        <label>Zieladresse</label>
-        <input id="end_address" type="text" placeholder="z.B. Englischer Garten, München" value="Englischer Garten, München" />
-        <div id="end-coords" style="font-size:11px;color:var(--muted);margin-top:-8px;margin-bottom:10px;min-height:16px"></div>
+        <label>Ziel (Lat / Lon)</label>
+        <div class="row">
+          <input id="end_lat" type="number" step="any" placeholder="Lat" value="48.1900" />
+          <input id="end_lon" type="number" step="any" placeholder="Lon" value="11.6200" />
+        </div>
 
         <div class="estimate-box" id="estimate-box">
           <div class="estimate-row"><span>Distanz</span><span id="est-dist">–</span></div>
@@ -419,7 +423,7 @@
   // ── Estimate ────────────────────────────────────────────────────────────
   async function getEstimate() {
     try {
-      const body = await getCoords();
+      const body = getCoords();
       body.username = document.getElementById('username').value.trim() || 'user';
       const data = await api('POST', '/rides/estimate', body);
       document.getElementById('est-dist').textContent  = data.distance_km + ' km';
@@ -430,30 +434,13 @@
     } catch (e) { log('Schätzung fehlgeschlagen: ' + e.message, 'err'); }
   }
 
-  // ── Geocoding via OpenStreetMap Nominatim ──────────────────────────────
-  async function geocode(address) {
-    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1`;
-    const resp = await fetch(url, { headers: { 'Accept-Language': 'de' } });
-    const data = await resp.json();
-    if (!data || data.length === 0) throw new Error(`Adresse nicht gefunden: "${address}"`);
-    return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon), display: data[0].display_name };
-  }
-
-  async function getCoords() {
-    const startAddr = document.getElementById('start_address').value.trim();
-    const endAddr   = document.getElementById('end_address').value.trim();
-    if (!startAddr || !endAddr) throw new Error('Bitte Start- und Zieladresse eingeben');
-
-    log('Suche Koordinaten...', 'info');
-    const [start, end] = await Promise.all([geocode(startAddr), geocode(endAddr)]);
-
-    // Show resolved coordinates as hint
-    document.getElementById('start-coords').textContent = `${start.lat.toFixed(4)}, ${start.lon.toFixed(4)}`;
-    document.getElementById('end-coords').textContent   = `${end.lat.toFixed(4)}, ${end.lon.toFixed(4)}`;
-    log(`Start: ${start.display.split(',')[0]}`, 'ok');
-    log(`Ziel:  ${end.display.split(',')[0]}`, 'ok');
-
-    return { start_lat: start.lat, start_lon: start.lon, end_lat: end.lat, end_lon: end.lon };
+  function getCoords() {
+    return {
+      start_lat: parseFloat(document.getElementById('start_lat').value),
+      start_lon: parseFloat(document.getElementById('start_lon').value),
+      end_lat:   parseFloat(document.getElementById('end_lat').value),
+      end_lon:   parseFloat(document.getElementById('end_lon').value),
+    };
   }
 
   // ── Book ride ───────────────────────────────────────────────────────────
@@ -461,7 +448,7 @@
     try {
       const username = document.getElementById('username').value.trim() || 'user';
       currentUsername = username;
-      const body = { username, ...await getCoords() };
+      const body = { username, ...getCoords() };
       const ride = await api('POST', '/rides', body);
       log(`Fahrt gebucht: ${ride.id.slice(0,8)}… – PENDING`, 'ok');
       trackedRides.add(ride.id);

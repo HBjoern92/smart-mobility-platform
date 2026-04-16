@@ -11,6 +11,7 @@ COPY app/ ./app/
 
 # Non-root user for security
 RUN adduser --disabled-password --gecos "" appuser
+RUN chown -R appuser:appuser /app
 USER appuser
 
 EXPOSE 8001
