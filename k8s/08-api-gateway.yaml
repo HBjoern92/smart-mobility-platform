@@ -20,8 +20,7 @@ spec:
     spec:
       containers:
         - name: api-gateway
-          image: api-gateway:latest
-          imagePullPolicy: Never
+          image: ghcr.io/hbjoern92/api-gateway:latest
           ports:
             - containerPort: 8000
           envFrom:

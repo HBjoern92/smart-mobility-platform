@@ -32,9 +32,7 @@ spec:
     spec:
       containers:
         - name: ride-service
-          image: ride-service:latest
-          # imagePullPolicy: Always  ← aktivieren wenn Image in Registry
-          imagePullPolicy: Never     # lokal gebaut (minikube/kind)
+          image: ghcr.io/hbjoern92/ride-service:latest
           ports:
             - containerPort: 8001
           envFrom:
