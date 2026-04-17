@@ -20,8 +20,7 @@ spec:
     spec:
       containers:
         - name: analytics-service
-          image: analytics-service:latest
-          imagePullPolicy: Never
+          image: ghcr.io/hbjoern92/analytics-service:latest
           ports:
             - containerPort: 8004
           envFrom:
