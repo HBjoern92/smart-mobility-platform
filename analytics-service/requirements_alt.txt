@@ -1,6 +1,6 @@
 fastapi==0.111.0
 uvicorn[standard]==0.29.0
-pyspark[connect]==4.0.0
+pyspark==3.5.3
 pymongo==4.7.2
 pydantic==2.7.1
 pydantic-settings==2.2.1

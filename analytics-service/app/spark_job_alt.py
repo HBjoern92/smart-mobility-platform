@@ -1,23 +1,22 @@
 """
-Spark Batch Job - Smart Mobility Analytics
+Spark Batch Job – Smart Mobility Analytics
 ==========================================
-Verbindet sich mit dem externen Spark Connect Cluster der DHBW
-und berechnet KPIs aus historischen Fahrtdaten in MongoDB.
+Reads historical ride events from MongoDB (written there by ride-service
+or collected from Kafka) and computes KPIs for the last N hours.
 
 KPIs computed:
-  - total_rides          : Anzahl Fahrten im Zeitfenster
-  - completed_rides      : Abgeschlossene Fahrten
-  - cancelled_rides      : Abgebrochene Fahrten
+  - total_rides          : number of rides in window
+  - completed_rides      : rides that reached COMPLETED status
+  - cancelled_rides      : rides that were CANCELLED
   - completion_rate_pct  : completed / total * 100
-  - avg_price_eur        : Durchschnittspreis
-  - avg_distance_km      : Durchschnittsdistanz
-  - avg_eta_minutes      : Durchschnittliche Fahrzeit
-  - revenue_eur          : Gesamtumsatz (nur completed)
-  - top_users            : Top 5 Nutzer nach Fahrtanzahl
+  - avg_price_eur        : average ride price
+  - avg_distance_km      : average ride distance
+  - avg_eta_minutes      : average estimated trip time
+  - revenue_eur          : total revenue (completed rides only)
+  - top_users            : top 5 users by ride count
 """
 
 import logging
-import os
 from datetime import datetime, timedelta
 from typing import Any, Dict
 
@@ -33,47 +32,38 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Schema
+# Schema – matches what ride-service writes to MongoDB / Kafka
 # ---------------------------------------------------------------------------
 
 RIDE_SCHEMA = StructType([
-    StructField("ride_id",     StringType(),    True),
-    StructField("username",    StringType(),    True),
-    StructField("status",      StringType(),    True),
-    StructField("price_eur",   FloatType(),     True),
-    StructField("distance_km", FloatType(),     True),
-    StructField("eta_minutes", FloatType(),     True),
-    StructField("created_at",  TimestampType(), True),
+    StructField("ride_id",      StringType(),    True),
+    StructField("username",     StringType(),    True),
+    StructField("status",       StringType(),    True),
+    StructField("price_eur",    FloatType(),     True),
+    StructField("distance_km",  FloatType(),     True),
+    StructField("eta_minutes",  FloatType(),     True),
+    StructField("created_at",   TimestampType(), True),
 ])
 
 
 # ---------------------------------------------------------------------------
-# Spark Session via Spark Connect
+# Spark session factory
 # ---------------------------------------------------------------------------
 
 def _get_spark() -> SparkSession:
-    """
-    Verbindet sich mit dem externen Spark Connect Cluster der DHBW.
-    Gruppe 3: Port 15013
-    """
-    # CA Zertifikat fuer SSL-Verbindung
-    pem_path = os.path.join(os.path.dirname(__file__), "spark-server.pem")
-    if os.path.exists(pem_path):
-        os.environ["GRPC_DEFAULT_SSL_ROOTS_FILE_PATH"] = pem_path
-        logger.info("Using CA certificate: %s", pem_path)
-    else:
-        logger.warning("spark-server.pem not found at %s", pem_path)
-
-    connection_string = (
-        f"sc://{settings.spark_connect_host}:{settings.spark_connect_port}"
-        f"/;token={settings.spark_connect_token};use_ssl=true"
-    )
-
-    logger.info("Connecting to Spark Connect: %s", connection_string.split(";token=")[0])
-
     return (
         SparkSession.builder
-        .remote(connection_string)
+        .appName(settings.spark_app_name)
+        .master(settings.spark_master)
+        # MongoDB connector (jar must be on classpath in production)
+        .config(
+            "spark.mongodb.input.uri",
+            f"{settings.mongo_url}/{settings.mongo_db}.rides",
+        )
+        .config(
+            "spark.mongodb.output.uri",
+            f"{settings.mongo_url}/{settings.mongo_db}.{settings.mongo_collection}",
+        )
         .getOrCreate()
     )
 
@@ -84,38 +74,30 @@ def _get_spark() -> SparkSession:
 
 def _load_rides_from_mongo(spark: SparkSession, since: datetime):
     """
-    Laedt Fahrtdaten aus MongoDB.
-    Die Daten werden vom Ride Service nach jeder Statusaenderung geschrieben.
+    Load ride documents from MongoDB written after `since`.
+    Requires the mongo-spark-connector JAR on the classpath.
+    Falls back to an empty DataFrame with the correct schema if unavailable.
     """
     try:
-        from pymongo import MongoClient
-        client = MongoClient(settings.mongo_url)
-        col = client["analytics"]["rides"]
-
-        # Daten als Python-Liste laden
-        rides = list(col.find(
-            {"created_at": {"$gte": since}},
-            {"_id": 0, "ride_id": 1, "username": 1, "status": 1,
-             "price_eur": 1, "distance_km": 1, "eta_minutes": 1, "created_at": 1}
-        ))
-
-        if not rides:
-            logger.info("No rides found in MongoDB since %s", since)
-            return spark.createDataFrame([], schema=RIDE_SCHEMA)
-
-        # In Spark DataFrame umwandeln
-        df = spark.createDataFrame(rides, schema=RIDE_SCHEMA)
+        df = (
+            spark.read
+            .format("com.mongodb.spark.sql.DefaultSource")
+            .option("collection", "rides")
+            .load()
+        )
+        # Filter to analysis window
+        df = df.filter(F.col("created_at") >= F.lit(since))
         logger.info("Loaded %d rides from MongoDB", df.count())
         return df
-
     except Exception as exc:
-        logger.warning("MongoDB load failed (%s) - using empty DataFrame", exc)
+        logger.warning("MongoDB load failed (%s) – using empty DataFrame", exc)
         return spark.createDataFrame([], schema=RIDE_SCHEMA)
 
 
 def _load_rides_from_kafka(spark: SparkSession, since: datetime):
     """
-    Alternative: Laedt Fahrtdaten direkt aus Kafka.
+    Alternative: read ride.created events directly from Kafka.
+    Uses Spark Structured Streaming in batch mode (readStream not needed here).
     """
     try:
         raw = (
@@ -136,7 +118,7 @@ def _load_rides_from_kafka(spark: SparkSession, since: datetime):
         logger.info("Loaded rides from Kafka topic: %s", settings.kafka_topic_rides)
         return df
     except Exception as exc:
-        logger.warning("Kafka load failed (%s) - using empty DataFrame", exc)
+        logger.warning("Kafka load failed (%s) – using empty DataFrame", exc)
         return spark.createDataFrame([], schema=RIDE_SCHEMA)
 
 
@@ -145,11 +127,14 @@ def _load_rides_from_kafka(spark: SparkSession, since: datetime):
 # ---------------------------------------------------------------------------
 
 def _compute_kpis(df) -> Dict[str, Any]:
-    """Berechnet alle KPIs aus dem Rides DataFrame."""
+    """
+    Run all aggregations on the rides DataFrame.
+    Returns a plain dict ready to be stored in MongoDB.
+    """
     total = df.count()
 
     if total == 0:
-        logger.info("No rides in window - returning zero KPIs")
+        logger.info("No rides in window – returning zero KPIs")
         return {
             "total_rides":         0,
             "completed_rides":     0,
@@ -162,17 +147,24 @@ def _compute_kpis(df) -> Dict[str, Any]:
             "top_users":           [],
         }
 
-    status_counts = df.groupBy("status").count().collect()
+    # Status counts
+    status_counts = (
+        df.groupBy("status")
+        .count()
+        .collect()
+    )
     counts_by_status = {row["status"]: row["count"] for row in status_counts}
     completed = counts_by_status.get("COMPLETED", 0)
     cancelled = counts_by_status.get("CANCELLED", 0)
 
+    # Aggregations on all rides
     agg_row = df.agg(
         F.round(F.avg("price_eur"),   2).alias("avg_price"),
         F.round(F.avg("distance_km"), 2).alias("avg_distance"),
         F.round(F.avg("eta_minutes"), 2).alias("avg_eta"),
     ).collect()[0]
 
+    # Revenue – only from completed rides
     revenue_row = (
         df.filter(F.col("status") == "COMPLETED")
         .agg(F.round(F.sum("price_eur"), 2).alias("revenue"))
@@ -180,6 +172,7 @@ def _compute_kpis(df) -> Dict[str, Any]:
     )
     revenue = float(revenue_row["revenue"] or 0.0)
 
+    # Top 5 users by ride count
     top_users = (
         df.groupBy("username")
         .count()
@@ -212,8 +205,13 @@ def _compute_kpis(df) -> Dict[str, Any]:
 
 def run_batch_job(source: str = "mongo") -> Dict[str, Any]:
     """
-    Fuehrt den Spark Batch Job aus.
-    Verbindet sich mit dem DHBW Spark Connect Cluster (Gruppe 3, Port 15013).
+    Execute the full Spark batch job.
+
+    Args:
+        source: "mongo" (default) or "kafka"
+
+    Returns:
+        Dict with all computed KPIs.
     """
     since = datetime.utcnow() - timedelta(hours=settings.lookback_hours)
     logger.info(
@@ -222,6 +220,7 @@ def run_batch_job(source: str = "mongo") -> Dict[str, Any]:
     )
 
     spark = _get_spark()
+    spark.sparkContext.setLogLevel("WARN")
 
     try:
         if source == "kafka":
