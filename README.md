@@ -346,7 +346,7 @@ strategy:
 
 ### Screen-Recording
 
-> 📹 **Screen-Recording folgt nach Cluster-Deployment** – siehe [assets/rolling-update-demo.mp4](./assets/rolling-update-demo.mp4)
+[Rolling Update Demo](./assets/rolling-update-demo.mov)
 
 ### Manuell durchführen
 
