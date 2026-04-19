@@ -5,3 +5,5 @@ __pycache__/
 *.pyo
 gruppe-3-kubeconfig.yaml
 assets/rolling-update-demo.mov
+assets/rolling-update-demo.mp4
+assets/rolling-update-demo.mov
