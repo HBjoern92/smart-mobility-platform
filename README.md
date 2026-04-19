@@ -409,7 +409,7 @@ curl -X POST http://localhost:8004/analytics/trigger?source=mongo
 
 ### Spark Job Logs
 
-> 📸 **Screenshot der Spark-Job Logs folgt**
+![Spark Job Logs](./assets/spark-logs.png)
 
 ```
 sm-analytics-service | INFO: Starting Spark batch job | source=mongo | window=24h
@@ -425,7 +425,7 @@ Die berechneten KPIs werden in MongoDB gespeichert:
 - Datenbank: `analytics`
 - Collection: `kpi_results`
 
-> 📸 **Screenshot der MongoDB Ergebnisse folgt**
+![Analytics KPI Result](./assets/analytics-mongodb.png)
 
 Beispiel-Dokument:
 ```json
