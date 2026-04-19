@@ -307,8 +307,7 @@ kubectl get services
 ```
 
 ### kubectl get deployments
-
-> 📸 **Screenshot folgt nach Cluster-Deployment**
+![kubectl get deployments](./assets/kubectl-deployments.png)
 
 ```
 NAME                READY   UP-TO-DATE   AVAILABLE
@@ -324,12 +323,10 @@ mongodb             1/1     1            1
 ```
 
 ### kubectl get pods
-
-> 📸 **Screenshot folgt nach Cluster-Deployment**
+![kubectl get pods](./assets/kubectl-pods.png)
 
 ### kubectl get services
-
-> 📸 **Screenshot folgt nach Cluster-Deployment**
+![kubectl get services](./assets/kubectl-services.png)
 
 ---
 
